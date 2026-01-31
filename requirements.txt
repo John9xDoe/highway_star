@@ -1,0 +1,7 @@
+pyvjoy==1.0.1
+vgamepad>=0.0.8
+opencv-python>=4.8.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+truck_telemetry==0.0.3
