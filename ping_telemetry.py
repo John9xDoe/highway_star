@@ -1,24 +1,27 @@
-import time
 import truck_telemetry
-from test_vjoy import VJoyController
 
-controller = VJoyController()
+class Telemetry:
+    def __init__(self):
+        truck_telemetry.init()
+        self.convert_const_mps_to_mph = 2.236936
 
-controller.set_controls(0, 0, 0)
+    def get_telemetry_keys(self, keyword=None):
+        data = truck_telemetry.get_data().keys()
 
-time.sleep(10)
+        if keyword is not None:
+            data = [key for key in data if keyword in key]
 
-truck_telemetry.init()
+        return data
 
-def ping_speed(vis=True, convert_const=2.236936):
+    def ping_data(self, vis=True):
+        data = truck_telemetry.get_data()
+        speed, rpm, rpm_max = data.get("speed") * self.convert_const_mps_to_mph, data.get("engineRpm"), data.get("engineRpmMax")
+        if data and vis:
+            print(f"Speed: {speed} | RPM: {rpm} | RPM_MAX: {rpm_max}")
 
-    data = truck_telemetry.get_data()
-    if data and vis:
-        print("speed:", data.get("speed") * convert_const)
-    time.sleep(0.05)  # 20 Hz
+        return speed, rpm, rpm_max
 
-    return data.get("speed") * convert_const
 
 if __name__ == "__main__":
-    while True:
-        ping_speed()
+    telemetry_pinger = Telemetry()
+    #print(telemetry_pinger.get_telemetry_keys(keyword='Rpm'))

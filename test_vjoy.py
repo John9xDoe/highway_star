@@ -27,6 +27,17 @@ class VJoyController:
     def reset(self):
         self.set_controls(0, 0, 0)
 
+    def tap_button(self, button_id: int, hold_s: float = 0.1):
+        bit = 1 << (button_id - 1)
+
+        self.joystick.data.lButtons |= bit
+        self.joystick.update()
+
+        time.sleep(hold_s)
+
+        self.joystick.data.lButtons &= ~bit
+        self.joystick.update()
+
 def test_vjoy():
     controller = VJoyController()
     try:
@@ -47,8 +58,13 @@ def test_vjoy():
             controller.set_controls(0, 0, brake)
             time.sleep(0.5)
         '''
-
-        controller.set_controls(0.1, 0, 0.1)
+        #time.sleep(10)
+        #controller.set_controls(0, 0, 1)
+        print("Button test")
+        time.sleep(5)
+        controller.tap_button(button_id=1, hold_s=0.5)
+        time.sleep(5)
+        controller.tap_button(button_id=2, hold_s=0.5)
         time.sleep(1000)
     finally:
         controller.reset()
