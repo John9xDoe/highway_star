@@ -17,7 +17,7 @@ class PID:
         logging.info("PID start")
 
     def calculate_filter(self):
-        v = ping_speed(vis=True)
+        v = ping_speed(vis=False)
         if not self.v_filter_prev_init:
             self.v_filter_prev = v
             self.v_filter_prev_init = True
@@ -29,7 +29,7 @@ class PID:
     def calculate_error(self):
         return self.desired_speed - self.calculate_filter()
 
-    def update_speed(self):
+    def update_speed(self, n_it):
         error = self.calculate_error()
 
         if abs(error) < self.deadband:
@@ -37,7 +37,9 @@ class PID:
 
         self.throttle += self.scale_error * error
         self.throttle = clamp(self.throttle, 0, 1)
-        print(f"error={error:.3f} throttle={self.throttle:.3f}")
+
+        if n_it % 100 == 0:
+            print(f"error={error:.3f} throttle={self.throttle:.3f}")
 
         self.controller.set_controls(0, self.throttle,0)
 
@@ -45,10 +47,11 @@ def test_pid():
     pid = PID()
     print("PID start")
     time.sleep(5)
-
+    i = 0
     while True:
-        pid.update_speed()
+        pid.update_speed(n_it=i)
         time.sleep(0.05)
+        i += 1
 
 if __name__ == "__main__":
     test_pid()
