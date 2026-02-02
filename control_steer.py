@@ -20,8 +20,8 @@ class SteerController:
         self.rate = 1
         self.last_turn_t = 0.0
 
-    def find_derivation_err(self, vis=True, save=False):
-        time.sleep(5)
+    def find_derivation_err(self, vis=False, save=False):
+        #time.sleep(5)
         frame = self.camera.grab(region=(0, 540, 1920, 1080))
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -40,13 +40,10 @@ class SteerController:
         e = e_y / (self.W // 2)
 
         if vis:
-
-            print(f"raw_e = {e_y} | normalized_e = {e}")
-
             cv2.circle(frame, (x_mid, self.high_center), 3, (255, 0, 0), -1)
 
-            cv2.line(frame, (right_border, 0 * self.high_center), (right_border, 2 * self.high_center), (255, 0, 0), 2)
-            cv2.line(frame, (left_border + self.W // 2, 0 * self.high_center), (left_border + self.W // 2, 2 * self.high_center), (255, 0, 0), 2)
+            cv2.line(frame, (right_border + self.W // 2, 0 * self.high_center), (right_border  + self.W // 2, 2 * self.high_center), (255, 0, 0), 2)
+            cv2.line(frame, (left_border, 0 * self.high_center), (left_border, 2 * self.high_center), (255, 0, 0), 2)
 
             cv2.circle(frame, (self.width_frame_center, self.high_center), 3, (0, 255, 0), -1)
             cv2.line(frame, (self.width_road_center, self.high_center * 0), (self.width_road_center, self.high_center * 2), (0, 0, 255), 1)
@@ -58,7 +55,7 @@ class SteerController:
             cv2.waitKey(1)
 
         if save:
-            cv2.imwrite(f'./images/e_y/run_1/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
+            cv2.imwrite(f'./images/e_y/run_3/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
 
         return e
 
@@ -67,11 +64,34 @@ class SteerController:
         if now - self.last_turn_t > self.rate:
             return None
 
-        steer_raw = self.Kp * self.find_derivation_err(save=True)
+        e_norm = self.find_derivation_err(vis=False, save=False)
+
+        steer_raw = self.Kp * e_norm
         steer_raw = np.clip(steer_raw, -self.steer_max, self.steer_max)
 
-        return steer_raw
+        return steer_raw, e_norm
 
 if __name__ == "__main__":
+
+    from test_vjoy import VJoyController
+    vjoy_controller = VJoyController()
+
     steer_controller = SteerController()
-    steer_controller.find_derivation_err(save=True)
+    #steer_controller.find_derivation_err(save=True)
+    i = 0
+
+    print("Starting in 10 seconds...")
+    time.sleep(10)
+
+    start_time = time.time()
+    while True:
+        steer, e = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
+        vjoy_controller.set_controls(steer,1,0)
+
+        if i % 10 == 0:
+            print(f"{i} it: steer = {steer} | e = {e * (steer_controller.W // 2)}")
+
+        steer_controller.last_turn_t = time.time()
+        time.sleep(1)
+
+        i += 1

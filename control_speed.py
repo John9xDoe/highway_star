@@ -17,7 +17,25 @@ class SpeedController:
 
         logging.info("PID start")
 
-    def calculate_filter(self, v):
+    def _get_dt(self):
+        now = time.time()
+        if self.t_prev is None:
+            self.t_prev = now
+            return None
+        dt = now - self.t_prev
+        self.t_prev = now
+
+        '''
+        if dt <= 0.0:
+            return None
+        if dt > 0.5:
+            dt = 0.5
+        '''
+
+        return dt
+
+
+    def _calculate_filter(self, v):
         if not self.v_filter_prev_init:
             self.v_filter_prev = v
             self.v_filter_prev_init = True
@@ -26,11 +44,11 @@ class SpeedController:
         self.v_filter_prev = v_filter
         return v_filter
 
-    def calculate_error(self, v):
-        return self.desired_speed - self.calculate_filter(v=v)
+    def _calculate_error(self, v):
+        return self.desired_speed - self._calculate_filter(v=v)
 
     def update_speed(self, v, vis):
-        error = self.calculate_error(v=v)
+        error = self._calculate_error(v=v)
 
         if abs(error) < self.deadband:
             error = 0
@@ -39,7 +57,7 @@ class SpeedController:
         self.throttle = clamp(self.throttle, 0, 1)
 
         if vis:
-            print(f"error={error:.3f} throttle={self.throttle:.3f}")
+            print(f"error={error:.3f} | throttle={self.throttle:.3f} | dt = {self._get_dt():.3f}")
 
         #self.controller.set_controls(0, self.throttle,0)
         return self.throttle
