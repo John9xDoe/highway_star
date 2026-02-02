@@ -20,7 +20,8 @@ if __name__ == "__main__":
 
     start_time = time.time()
     while True:
-        vis = True if i % 100 == 0 else False
+        vis = True if i % 10 == 0 else False
+        if vis: print(f"{i} it")
         speed, rpm, rpm_max = telemetry_pinger.ping_data(vis=vis)
         throttle = speed_controller.update_speed(v=speed, vis=vis)
         gearbox_shift = gearbox_controller.update_gear(rpm=rpm, rpm_max=rpm_max, throttle=throttle, now=time.time() - start_time)
@@ -29,13 +30,15 @@ if __name__ == "__main__":
         if gearbox_shift == 'up':
             vjoy_controller.tap_button(1, 0.1)
             gearbox_controller.last_shift_t = time.time() - start_time
+
+            print()
+            print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
         elif gearbox_shift == 'down':
             vjoy_controller.tap_button(2, 0.1)
             gearbox_controller.last_shift_t = time.time() - start_time
 
-        if vis:
-            print(gearbox_shift)
             print()
+            print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
 
         vjoy_controller.set_controls(0, throttle, 0)
 

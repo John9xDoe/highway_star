@@ -24,4 +24,4 @@ class Telemetry:
 
 if __name__ == "__main__":
     telemetry_pinger = Telemetry()
-    #print(telemetry_pinger.get_telemetry_keys(keyword='Rpm'))
+    print(telemetry_pinger.get_telemetry_keys())
