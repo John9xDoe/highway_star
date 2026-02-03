@@ -19,6 +19,8 @@ class SteerController:
         self.width_road_center = self.width_frame_center - self.base_shift
         self.width_shift_line_lookahead = 15
 
+        self.lane_width = 2600 # average without extremums (experimental)
+
         self.Kp = 0.5
         self.steer_max = 0.5
         self.rate = 1
@@ -27,23 +29,45 @@ class SteerController:
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.sigma = 0.33
 
-    def _prepare_frame(self):
+    def prepare_frame(self):
         raw_frame = None
 
         while raw_frame is None:
             raw_frame = self.camera.grab(region=self.ROI)
 
-        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
+        prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_RGB2HSV)
+        cv2.imshow('prep_frame', prep_frame)
+        #prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
         prep_frame = cv2.GaussianBlur(prep_frame, (7, 7), 0)
 
 
-        prep_frame = np.clip(self.clahe.apply(prep_frame) + 30, 0, 255).astype(np.uint8)
+        #prep_frame = np.clip(self.clahe.apply(prep_frame), 0, 255).astype(np.uint8)
+
+        #lower = np.array([85, 60, 120], np.uint8)
+        #upper = np.array([105, 180, 255], np.uint8)
+
+        lower_y = np.array([18, 80, 120], np.uint8)
+        upper_y = np.array([35, 255, 255], np.uint8)
+
+        #lower_w = np.array([0, 0, 180], np.uint8)
+        #upper_w = np.array([179, 60, 255], np.uint8)
+
+        lower_w = np.array([0, 0, 200], np.uint8)
+        upper_w = np.array([179, 40, 255], np.uint8)
+
+        mask_w = cv2.inRange(prep_frame, lower_w, upper_w) # mask
+        mask_y = cv2.inRange(prep_frame, lower_y, upper_y) # mask
+
+        prep_frame = cv2.bitwise_or(mask_y, mask_w)
+
+        kernel = np.ones((3, 3), np.uint8)
+        mask = cv2.morphologyEx(prep_frame, cv2.MORPH_OPEN, kernel, iterations=1)
+        prep_frame = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
 
         return prep_frame, raw_frame
 
     def find_lane_borders_v0(self, vis=True):
-        frame, raw_frame = self._prepare_frame()
+        frame, raw_frame = self.prepare_frame()
 
         lookahead_area = frame[self.high_center - 5: self.high_center + 5, :]
         lookahead = np.mean(lookahead_area, axis=0)
@@ -55,7 +79,7 @@ class SteerController:
         return frame, left_border, right_border
 
     def find_lane_borders_v1(self, vis=True):
-        frame, raw_frame = self._prepare_frame()
+        frame, raw_frame = self.prepare_frame()
 
         lookahead_area = frame[self.high_center - 5: self.high_center + 5, :]
         lookahead = np.mean(lookahead_area, axis=0)
@@ -96,7 +120,7 @@ class SteerController:
             cv2.waitKey(0)
 
     def find_lane_borders_v2(self, vis=True):
-        frame, raw_frame = self._prepare_frame()
+        frame, raw_frame = self.prepare_frame()
 
         v = median(frame)
         t_low = max(0, (1 - self.sigma) * v)
@@ -105,7 +129,10 @@ class SteerController:
         edges = cv2.Canny(frame, t_low, t_high, apertureSize=3, L2gradient=True)
 
         closing = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8))
-        segments = cv2.HoughLinesP(closing, rho=1, theta=np.pi/180, threshold=50, minLineLength=100, maxLineGap=20)
+        segments = cv2.HoughLinesP(closing, rho=1, theta=np.pi/180, threshold=50, minLineLength=240, maxLineGap=20)
+
+        if segments is None:
+            return None, None, None
 
         #print(segments)
 
@@ -158,6 +185,8 @@ class SteerController:
         if frame is None or left_border is None or right_border is None:
             return None
 
+        print(abs(right_border - left_border))
+
         x_mid = (right_border + left_border) // 2
         e_y = x_mid - self.width_frame_center
 
@@ -179,7 +208,7 @@ class SteerController:
             #cv2.waitKey(0)
 
         if save:
-            cv2.imwrite(f'./images/e_y/run_5/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
+            cv2.imwrite(f'./images/e_y/run_6/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
 
         return e
 
@@ -216,6 +245,12 @@ if __name__ == "__main__":
     #print(steering, e_norm, e_norm * (steer_controller.W // 2))
     #steer_controller.find_derivation_err(save=True)
 
+    #prep, raw = steer_controller.prepare_frame()
+    #cv2.imshow("Prepare Frame", prep)
+    #cv2.waitKey(0)
+
+    #steer_controller.find_derivation_err(vis=True)
+
     '''
     i = 0
     while True:
@@ -230,27 +265,23 @@ if __name__ == "__main__":
     '''
 
     #steer_controller.find_lane_borders_v2()
-
     #'''
-
-    
-
     i = 0
     start_time = time.time()
     while True:
         steer, e = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
 
         if steer is None or e is None:
+            #print('НИ-ХУ-Я!!!')
             continue
 
         vjoy_controller.set_controls(steer,1,0)
         
-        if i % 10 == 0:
-            print(f"{i} it: steer = {steer} | e = {e * (steer_controller.W // 2)}")
+        #if i % 1 == 0:
+            #print(f"{i} it: steer = {steer} | e = {e * (steer_controller.W // 2)}")
 
         steer_controller.last_turn_t = time.time()
         time.sleep(1)
 
         i += 1
     #'''
-
