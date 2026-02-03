@@ -4,14 +4,18 @@ import dxcam
 import numpy as np
 from datetime import datetime
 
+from numpy.ma.extras import median
+
+
 class SteerController:
     def __init__(self):
         self.camera = dxcam.create()
 
         self.W, self.H = 1920, 1080
+        self.ROI = (0, (self.H // 2), self.W, self.H)
         self.base_shift = 0
-        self.high_center = 270
-        self.width_frame_center = 960
+        self.high_center = (self.ROI[3] - self.ROI[1]) // 2
+        self.width_frame_center = (self.ROI[2] - self.ROI[0]) // 2
         self.width_road_center = self.width_frame_center - self.base_shift
         self.width_shift_line_lookahead = 15
 
@@ -20,12 +24,26 @@ class SteerController:
         self.rate = 1
         self.last_turn_t = 0.0
 
-    def find_derivation_err(self, vis=False, save=False):
-        #time.sleep(5)
-        frame = self.camera.grab(region=(0, 540, 1920, 1080))
+        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self.sigma = 0.33
 
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        frame = cv2.GaussianBlur(frame, (5,5), 0)
+    def _prepare_frame(self):
+        raw_frame = None
+
+        while raw_frame is None:
+            raw_frame = self.camera.grab(region=self.ROI)
+
+        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
+        prep_frame = cv2.GaussianBlur(prep_frame, (7, 7), 0)
+
+
+        prep_frame = np.clip(self.clahe.apply(prep_frame) + 30, 0, 255).astype(np.uint8)
+
+        return prep_frame, raw_frame
+
+    def find_lane_borders_v0(self, vis=True):
+        frame, raw_frame = self._prepare_frame()
 
         lookahead_area = frame[self.high_center - 5: self.high_center + 5, :]
         lookahead = np.mean(lookahead_area, axis=0)
@@ -34,7 +52,113 @@ class SteerController:
         left_part, right_part = grad[:int(0.5 * 1920)], grad[int(0.5 * 1920):]
         right_border, left_border = np.argmax(right_part), np.argmax(left_part)
 
-        x_mid = (right_border + self.W // 2 + left_border) // 2
+        return frame, left_border, right_border
+
+    def find_lane_borders_v1(self, vis=True):
+        frame, raw_frame = self._prepare_frame()
+
+        lookahead_area = frame[self.high_center - 5: self.high_center + 5, :]
+        lookahead = np.mean(lookahead_area, axis=0)
+        v_channel = lookahead[:, 2]
+        grad = np.abs(np.diff(v_channel))
+        batch = 320
+        peaks = []
+        for i in range(self.W // batch):
+            peak = np.argsort(grad[i * batch:(i + 1) * batch])[::-1][0] + 240 * i
+            peaks.append(peak)
+
+            if vis:
+                cv2.line(frame, (peak, 0 * self.high_center), (peak, 2 * self.high_center), (0, 0, 255), 2)
+
+        err_lane_borders = float('inf')
+        base_meaning = 1100
+        left_boarder, right_border = None, None
+        peaks.sort()
+
+        for i in range(len(peaks)):
+            for j in range(i + 1, len(peaks)):
+                if abs(base_meaning - abs(peaks[i] - peaks[j])) < err_lane_borders:
+                    err_lane_borders = base_meaning - abs(peaks[i] - peaks[j])
+                    left_boarder, right_border = peaks[i], peaks[j]
+
+        if vis:
+            cv2.line(frame, (0, self.high_center), (self.W, self.high_center), (0, 0, 0), 1)
+            cv2.line(frame, (left_boarder, 0 * self.high_center), (left_boarder, 2 * self.high_center), (0, 255, 0),2)
+            cv2.line(frame, (right_border, 0 * self.high_center), (right_border, 2 * self.high_center), (0, 255, 0), 2)
+            cv2.imshow('frame', frame)
+            cv2.waitKey(0)
+
+        return frame, right_border + self.W // 2, left_boarder
+
+        if vis:
+            print(peaks)
+            cv2.imshow('frame', frame)
+            cv2.waitKey(0)
+
+    def find_lane_borders_v2(self, vis=True):
+        frame, raw_frame = self._prepare_frame()
+
+        v = median(frame)
+        t_low = max(0, (1 - self.sigma) * v)
+        t_high = min(255, (1 + self.sigma) * v)
+
+        edges = cv2.Canny(frame, t_low, t_high, apertureSize=3, L2gradient=True)
+
+        closing = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((3,3), np.uint8))
+        segments = cv2.HoughLinesP(closing, rho=1, theta=np.pi/180, threshold=50, minLineLength=100, maxLineGap=20)
+
+        #print(segments)
+
+        left_sum_aw, right_sum_aw = 0, 0
+        left_sum_bw, right_sum_bw = 0, 0
+        left_sum_w, right_sum_w = 0, 0
+
+        eps = 10
+        for x1, y1, x2, y2 in segments.reshape(-1, 4):
+            if abs(x2 - x1) < eps:
+                continue
+
+            a = (y2 - y1) / (x2 - x1)
+            b = y1 - a * x1
+            L = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+            if a < 0:
+                left_sum_aw += a * L
+                left_sum_bw += b * L
+                left_sum_w += L
+            elif a > 0:
+                right_sum_aw += a * L
+                right_sum_bw += b * L
+                right_sum_w += L
+
+        if left_sum_w == 0 or right_sum_w == 0:
+            return None, None, None
+
+        al_avg, ar_avg = left_sum_aw / left_sum_w, right_sum_aw / right_sum_w
+        bl_avg, br_avg = left_sum_bw / left_sum_w, right_sum_bw / right_sum_w
+
+        l_b = ((-int(bl_avg / al_avg), 0), (int((self.H - bl_avg) / al_avg),self.H))
+        r_b = ((-int(br_avg / ar_avg), 0), (int((self.H - br_avg) / ar_avg),self.H))
+
+        if vis:
+            cv2.line(raw_frame, l_b[0], l_b[1], (0, 255, 0), 2)
+            cv2.line(raw_frame, r_b[0], r_b[1], (0, 255, 0), 2)
+
+            #cv2.imshow('frame', raw_frame)
+            #cv2.waitKey(0)
+
+        return raw_frame, int(((self.H // 2 - bl_avg) / al_avg)),  int(((self.H // 2 - br_avg) / ar_avg))
+
+    def find_derivation_err(self, vis=True, save=True):
+        #time.sleep(5)
+        #frame = self._prepare_frame()
+
+        frame, left_border, right_border = self.find_lane_borders_v2(vis=vis)
+
+        if frame is None or left_border is None or right_border is None:
+            return None
+
+        x_mid = (right_border + left_border) // 2
         e_y = x_mid - self.width_frame_center
 
         e = e_y / (self.W // 2)
@@ -42,7 +166,7 @@ class SteerController:
         if vis:
             cv2.circle(frame, (x_mid, self.high_center), 3, (255, 0, 0), -1)
 
-            cv2.line(frame, (right_border + self.W // 2, 0 * self.high_center), (right_border  + self.W // 2, 2 * self.high_center), (255, 0, 0), 2)
+            cv2.line(frame, (right_border, 0 * self.high_center), (right_border, 2 * self.high_center), (255, 0, 0), 2)
             cv2.line(frame, (left_border, 0 * self.high_center), (left_border, 2 * self.high_center), (255, 0, 0), 2)
 
             cv2.circle(frame, (self.width_frame_center, self.high_center), 3, (0, 255, 0), -1)
@@ -51,20 +175,23 @@ class SteerController:
             cv2.line(frame, (0, self.high_center), (self.W, self.high_center), (0, 0, 0), 1)
             #cv2.line(frame, (width_road_center + width_shift_line_lookahead, high_center), (width_road_center + width_shift_line_lookahead + 500, high_center), (0, 0, 0), 1)
 
-            cv2.imshow('frame', frame)
-            cv2.waitKey(1)
+            #cv2.imshow('frame', frame)
+            #cv2.waitKey(0)
 
         if save:
-            cv2.imwrite(f'./images/e_y/run_3/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
+            cv2.imwrite(f'./images/e_y/run_5/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
 
         return e
 
     def calculate_steering_wheel_angle(self, now):
 
         if now - self.last_turn_t > self.rate:
-            return None
+            return None, None
 
-        e_norm = self.find_derivation_err(vis=False, save=False)
+        e_norm = self.find_derivation_err(vis=True, save=True)
+
+        if e_norm is None:
+            return None, None
 
         steer_raw = self.Kp * e_norm
         steer_raw = np.clip(steer_raw, -self.steer_max, self.steer_max)
@@ -72,22 +199,52 @@ class SteerController:
         return steer_raw, e_norm
 
 if __name__ == "__main__":
+    #print(np.argsort([1, 2, 5, 3, 4, 7, 6])[::-1][:4])
 
     from test_vjoy import VJoyController
+
     vjoy_controller = VJoyController()
+    vjoy_controller.set_controls(0, 1, 0)
+
+    print("Starting in 5 seconds...")
+    time.sleep(5)
 
     steer_controller = SteerController()
+    #steer_controller.find_lane_borders_v2()
+
+    #steering, e_norm = steer_controller.calculate_steering_wheel_angle(0.0)
+    #print(steering, e_norm, e_norm * (steer_controller.W // 2))
     #steer_controller.find_derivation_err(save=True)
+
+    '''
     i = 0
+    while True:
+        e = steer_controller.find_derivation_err()
 
-    print("Starting in 10 seconds...")
-    time.sleep(10)
+        if i % 1 == 0:
+            print(f"e-{i}={e}")
 
+        i += 1
+
+        time.sleep(10)
+    '''
+
+    #steer_controller.find_lane_borders_v2()
+
+    #'''
+
+    
+
+    i = 0
     start_time = time.time()
     while True:
         steer, e = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
-        vjoy_controller.set_controls(steer,1,0)
 
+        if steer is None or e is None:
+            continue
+
+        vjoy_controller.set_controls(steer,1,0)
+        
         if i % 10 == 0:
             print(f"{i} it: steer = {steer} | e = {e * (steer_controller.W // 2)}")
 
@@ -95,3 +252,5 @@ if __name__ == "__main__":
         time.sleep(1)
 
         i += 1
+    #'''
+
