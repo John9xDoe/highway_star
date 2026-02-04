@@ -12,7 +12,7 @@ class SteerController:
         self.camera = dxcam.create()
 
         self.W, self.H = 1920, 1080
-        self.ROI = (0, (self.H // 2), self.W, self.H)
+        self.ROI = (0, (self.H * 2 // 3), self.W, self.H)
         self.W_ROI = self.ROI[2] - self.ROI[0]
         self.H_ROI = self.ROI[3] - self.ROI[1]
         self.base_shift = 0
@@ -21,7 +21,7 @@ class SteerController:
         self.width_road_center = self.width_frame_center - self.base_shift
         self.width_shift_line_lookahead = 15
 
-        self.lane_width = 2600 # average without extremums (experimental)
+        self.lane_width = 800 # 2600 # average without extremums (experimental)
 
         self.Kp = 0.5
         self.steer_max = 0.5
@@ -66,8 +66,9 @@ class SteerController:
         mask = cv2.morphologyEx(prep_frame, cv2.MORPH_OPEN, kernel, iterations=1)
         prep_frame = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
 
-        #h_coef = 0.33
+        #h_coef = 0.326
         #prep_frame, H = self.make_bird_eye(prep_frame, h_coef, 1 - h_coef)
+
         cv2.imwrite(f'./images/e_y/run_7/{i}_mask.png', prep_frame)
 
         return prep_frame, raw_frame
@@ -190,28 +191,53 @@ class SteerController:
                 right_sum_bw += b * L
                 right_sum_w += L
 
-        if left_sum_w == 0 or right_sum_w == 0:
+
+        if left_sum_w == 0 and right_sum_w == 0:
             return None, None, None
+        elif left_sum_w == 0:
+            ar_avg = right_sum_aw / right_sum_w
+            br_avg = right_sum_bw / right_sum_w
 
-        al_avg, ar_avg = left_sum_aw / left_sum_w, right_sum_aw / right_sum_w
-        bl_avg, br_avg = left_sum_bw / left_sum_w, right_sum_bw / right_sum_w
+            r_b = ((-int(br_avg / ar_avg), 0), (int((self.H - br_avg) / ar_avg), self.H))
 
-        l_b = ((-int(bl_avg / al_avg), 0), (int((self.H - bl_avg) / al_avg),self.H))
-        r_b = ((-int(br_avg / ar_avg), 0), (int((self.H - br_avg) / ar_avg),self.H))
+            if vis:
+                cv2.line(raw_frame, r_b[0], r_b[1], (0, 255, 0), 2)
+                cv2.line(raw_frame, (r_b[0][0] - self.lane_width, r_b[0][1]), (r_b[1][0] - self.lane_width, r_b[1][1]), (0, 255, 0), 2)
 
-        if vis:
-            cv2.line(raw_frame, l_b[0], l_b[1], (0, 255, 0), 2)
-            cv2.line(raw_frame, r_b[0], r_b[1], (0, 255, 0), 2)
+            return raw_frame, r_b[0][0] - self.lane_width, r_b
 
+        elif right_sum_w == 0:
+            al_avg = left_sum_aw / left_sum_w
+            bl_avg = left_sum_bw / left_sum_w
+
+            l_b = ((-int(bl_avg / al_avg), 0), (int((self.H - bl_avg) / al_avg),self.H))
+
+            if vis:
+                cv2.line(raw_frame, l_b[0], l_b[1], (0, 255, 0), 2)
+                cv2.line(raw_frame, (l_b[0][0] + self.lane_width, l_b[0][1]), (l_b[1][0] + self.lane_width, l_b[1][1]), (0, 255, 0), 2)
+
+            return raw_frame, l_b, l_b[0][0] + self.lane_width
+
+        else:
+            al_avg, ar_avg = left_sum_aw / left_sum_w, right_sum_aw / right_sum_w
+            bl_avg, br_avg = left_sum_bw / left_sum_w, right_sum_bw / right_sum_w
+
+            l_b = ((-int(bl_avg / al_avg), 0), (int((self.H - bl_avg) / al_avg),self.H))
+            r_b = ((-int(br_avg / ar_avg), 0), (int((self.H - br_avg) / ar_avg),self.H))
+
+            if vis:
+                cv2.line(raw_frame, l_b[0], l_b[1], (0, 255, 0), 2)
+                cv2.line(raw_frame, r_b[0], r_b[1], (0, 255, 0), 2)
+
+                #cv2.imshow('frame', raw_frame)
+                #cv2.waitKey(0)
+
+            cv2.imwrite(f'./images/e_y/run_7/{i}_raw_frame.png', raw_frame)
+            cv2.imwrite(f'./images/e_y/run_7/{i}_prep_frame.png', frame)
             #cv2.imshow('frame', raw_frame)
             #cv2.waitKey(0)
 
-        cv2.imwrite(f'./images/e_y/run_7/{i}_raw_frame.png', raw_frame)
-        cv2.imwrite(f'./images/e_y/run_7/{i}_prep_frame.png', frame)
-        #cv2.imshow('frame', raw_frame)
-        #cv2.waitKey(0)
-
-        return raw_frame, int(((self.H // 2 - bl_avg) / al_avg)),  int(((self.H // 2 - br_avg) / ar_avg))
+            return raw_frame, int(((self.H // 2 - bl_avg) / al_avg)),  int(((self.H // 2 - br_avg) / ar_avg))
 
     def find_derivation_err(self, vis=True, save=True):
         #time.sleep(5)
@@ -278,7 +304,7 @@ if __name__ == "__main__":
 
     steer_controller = SteerController()
 
-    i = 39
+    i = 112
 
     while True:
         steer_controller.find_lane_borders_v2(vis=True, i=i)
@@ -295,7 +321,7 @@ if __name__ == "__main__":
     #    cv2.imshow(f'{h_coef/100}', h_frame)
     #    cv2.waitKey(0)
 
-    #h_frame, _ = steer_controller.make_bird_eye(test_frame, 0.3, 0.7)
+    #h_frame, _ = steer_controller.make_bird_eye(test_frame, 0.326, 0.674)
     #cv2.imshow('test_prep_photo', h_frame)
     #cv2.waitKey(0)
 
