@@ -13,9 +13,11 @@ class SteerController:
 
         self.W, self.H = 1920, 1080
         self.ROI = (0, (self.H // 2), self.W, self.H)
+        self.W_ROI = self.ROI[2] - self.ROI[0]
+        self.H_ROI = self.ROI[3] - self.ROI[1]
         self.base_shift = 0
-        self.high_center = (self.ROI[3] - self.ROI[1]) // 2
-        self.width_frame_center = (self.ROI[2] - self.ROI[0]) // 2
+        self.high_center = self.H_ROI // 2
+        self.width_frame_center = self.W_ROI // 2
         self.width_road_center = self.width_frame_center - self.base_shift
         self.width_shift_line_lookahead = 15
 
@@ -29,14 +31,14 @@ class SteerController:
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.sigma = 0.33
 
-    def prepare_frame(self):
+    def prepare_frame(self, i=0):
         raw_frame = None
 
         while raw_frame is None:
             raw_frame = self.camera.grab(region=self.ROI)
 
         prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_RGB2HSV)
-        cv2.imshow('prep_frame', prep_frame)
+        #cv2.imshow('prep_frame', prep_frame)
         #prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
         prep_frame = cv2.GaussianBlur(prep_frame, (7, 7), 0)
 
@@ -64,7 +66,37 @@ class SteerController:
         mask = cv2.morphologyEx(prep_frame, cv2.MORPH_OPEN, kernel, iterations=1)
         prep_frame = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
 
+        #h_coef = 0.33
+        #prep_frame, H = self.make_bird_eye(prep_frame, h_coef, 1 - h_coef)
+        cv2.imwrite(f'./images/e_y/run_7/{i}_mask.png', prep_frame)
+
         return prep_frame, raw_frame
+
+    def make_bird_eye(self, frame, left_percent, right_percent):
+        tl, tr = [int(self.W_ROI * left_percent), int(self.H_ROI * 0)], [int(self.W_ROI * right_percent), int(self.H_ROI * 0)]
+        bl, br = [int(self.W_ROI * 0), int(self.H_ROI - 1)], [int(self.W_ROI - 1), int(self.H_ROI - 1)]
+
+
+        src = np.array([tl, tr, br, bl], np.float32)
+
+        dst = np.array([
+            [0, 0],  # TL
+            [self.W_ROI - 1, 0],  # TR
+            [self.W_ROI - 1, self.H_ROI - 1],  # BR
+            [0, self.H_ROI - 1],  # BL
+        ], dtype=np.float32)
+
+        H = cv2.getPerspectiveTransform(src, dst)  # 3x3 homography (dst_p = H * src_p)
+
+        bev = cv2.warpPerspective(
+            frame, H, (self.W_ROI, self.H_ROI),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0
+        )
+
+        return bev, H
+
 
     def find_lane_borders_v0(self, vis=True):
         frame, raw_frame = self.prepare_frame()
@@ -119,8 +151,8 @@ class SteerController:
             cv2.imshow('frame', frame)
             cv2.waitKey(0)
 
-    def find_lane_borders_v2(self, vis=True):
-        frame, raw_frame = self.prepare_frame()
+    def find_lane_borders_v2(self, vis=True, i=0):
+        frame, raw_frame = self.prepare_frame(i=i)
 
         v = median(frame)
         t_low = max(0, (1 - self.sigma) * v)
@@ -134,8 +166,6 @@ class SteerController:
         if segments is None:
             return None, None, None
 
-        #print(segments)
-
         left_sum_aw, right_sum_aw = 0, 0
         left_sum_bw, right_sum_bw = 0, 0
         left_sum_w, right_sum_w = 0, 0
@@ -144,6 +174,8 @@ class SteerController:
         for x1, y1, x2, y2 in segments.reshape(-1, 4):
             if abs(x2 - x1) < eps:
                 continue
+
+            cv2.line(raw_frame, (x1, y1), (x2, y2), (0, 255, 0), 1)
 
             a = (y2 - y1) / (x2 - x1)
             b = y1 - a * x1
@@ -173,6 +205,11 @@ class SteerController:
 
             #cv2.imshow('frame', raw_frame)
             #cv2.waitKey(0)
+
+        cv2.imwrite(f'./images/e_y/run_7/{i}_raw_frame.png', raw_frame)
+        cv2.imwrite(f'./images/e_y/run_7/{i}_prep_frame.png', frame)
+        #cv2.imshow('frame', raw_frame)
+        #cv2.waitKey(0)
 
         return raw_frame, int(((self.H // 2 - bl_avg) / al_avg)),  int(((self.H // 2 - br_avg) / ar_avg))
 
@@ -235,10 +272,33 @@ if __name__ == "__main__":
     vjoy_controller = VJoyController()
     vjoy_controller.set_controls(0, 1, 0)
 
-    print("Starting in 5 seconds...")
-    time.sleep(5)
+    #print("Starting in 5 seconds...")
+    #time.sleep(5)
+    time.sleep(3)
 
     steer_controller = SteerController()
+
+    i = 39
+
+    while True:
+        steer_controller.find_lane_borders_v2(vis=True, i=i)
+        i += 1
+        time.sleep(5)
+
+
+    #test_frame = cv2.imread('test_prep_photo.png')
+    #cv2.imshow('test', test_frame)
+    #cv2.waitKey(0)
+
+    #for h_coef in range(320, 330): # 0.326
+    #    h_frame, _ = steer_controller.make_bird_eye(test_frame, h_coef / 1000, 1 - h_coef / 1000)
+    #    cv2.imshow(f'{h_coef/100}', h_frame)
+    #    cv2.waitKey(0)
+
+    #h_frame, _ = steer_controller.make_bird_eye(test_frame, 0.3, 0.7)
+    #cv2.imshow('test_prep_photo', h_frame)
+    #cv2.waitKey(0)
+
     #steer_controller.find_lane_borders_v2()
 
     #steering, e_norm = steer_controller.calculate_steering_wheel_angle(0.0)
@@ -265,7 +325,7 @@ if __name__ == "__main__":
     '''
 
     #steer_controller.find_lane_borders_v2()
-    #'''
+    '''
     i = 0
     start_time = time.time()
     while True:
