@@ -21,7 +21,7 @@ class SteerController:
         self.width_road_center = self.width_frame_center - self.base_shift
         self.width_shift_line_lookahead = 15
 
-        self.lane_width = 800 # 2600 # average without extremums (experimental)
+        self.lane_width = 900 # 2600 # average without extremums (experimental)
 
         self.Kp = 0.5
         self.steer_max = 0.5
@@ -31,8 +31,7 @@ class SteerController:
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.sigma = 0.33
 
-    def prepare_frame(self, i=0):
-        raw_frame = None
+    def prepare_frame(self, raw_frame=None, i=0):
 
         while raw_frame is None:
             raw_frame = self.camera.grab(region=self.ROI)
@@ -152,12 +151,12 @@ class SteerController:
             cv2.imshow('frame', frame)
             cv2.waitKey(0)
 
-    def find_lane_borders_v2(self, vis=True, i=0):
-        frame, raw_frame = self.prepare_frame(i=i)
+    def find_lane_borders_v2(self, vis=True, raw_frame=None, i=0):
+        frame, raw_frame = self.prepare_frame(raw_frame=raw_frame, i=i)
 
         v = median(frame)
-        t_low = max(0, (1 - self.sigma) * v)
-        t_high = min(255, (1 + self.sigma) * v)
+        t_low = 50 #max(0, (1 - self.sigma) * v)
+        t_high = 150 #min(255, (1 + self.sigma) * v)
 
         edges = cv2.Canny(frame, t_low, t_high, apertureSize=3, L2gradient=True)
 
@@ -191,53 +190,86 @@ class SteerController:
                 right_sum_bw += b * L
                 right_sum_w += L
 
-
         if left_sum_w == 0 and right_sum_w == 0:
             return None, None, None
         elif left_sum_w == 0:
             ar_avg = right_sum_aw / right_sum_w
             br_avg = right_sum_bw / right_sum_w
 
-            r_b = ((-int(br_avg / ar_avg), 0), (int((self.H - br_avg) / ar_avg), self.H))
+            al_avg = 0
+
+            r_b = ((-int(br_avg / ar_avg), 0), (int((self.H_ROI - br_avg) / ar_avg), self.H_ROI))
 
             if vis:
                 cv2.line(raw_frame, r_b[0], r_b[1], (0, 255, 0), 2)
                 cv2.line(raw_frame, (r_b[0][0] - self.lane_width, r_b[0][1]), (r_b[1][0] - self.lane_width, r_b[1][1]), (0, 255, 0), 2)
 
-            return raw_frame, r_b[0][0] - self.lane_width, r_b
+            left_border, right_border = r_b[0][0] - self.lane_width,  int(((self.H_ROI // 2 - br_avg) / ar_avg))
 
         elif right_sum_w == 0:
             al_avg = left_sum_aw / left_sum_w
             bl_avg = left_sum_bw / left_sum_w
 
-            l_b = ((-int(bl_avg / al_avg), 0), (int((self.H - bl_avg) / al_avg),self.H))
+            l_b = ((-int(bl_avg / al_avg), 0), (int((self.H_ROI - bl_avg) / al_avg), self.H_ROI))
+
+            ar_avg = 0
 
             if vis:
                 cv2.line(raw_frame, l_b[0], l_b[1], (0, 255, 0), 2)
                 cv2.line(raw_frame, (l_b[0][0] + self.lane_width, l_b[0][1]), (l_b[1][0] + self.lane_width, l_b[1][1]), (0, 255, 0), 2)
 
-            return raw_frame, l_b, l_b[0][0] + self.lane_width
+            left_border, right_border = int(((self.H_ROI // 2 - bl_avg) / al_avg)), l_b[0][0] + self.lane_width
 
         else:
             al_avg, ar_avg = left_sum_aw / left_sum_w, right_sum_aw / right_sum_w
             bl_avg, br_avg = left_sum_bw / left_sum_w, right_sum_bw / right_sum_w
 
-            l_b = ((-int(bl_avg / al_avg), 0), (int((self.H - bl_avg) / al_avg),self.H))
-            r_b = ((-int(br_avg / ar_avg), 0), (int((self.H - br_avg) / ar_avg),self.H))
+            l_b = ((-int(bl_avg / al_avg), 0), (int((self.H_ROI - bl_avg) / al_avg), self.H_ROI))
+            r_b = ((-int(br_avg / ar_avg), 0), (int((self.H_ROI - br_avg) / ar_avg), self.H_ROI))
 
             if vis:
                 cv2.line(raw_frame, l_b[0], l_b[1], (0, 255, 0), 2)
                 cv2.line(raw_frame, r_b[0], r_b[1], (0, 255, 0), 2)
 
-                #cv2.imshow('frame', raw_frame)
-                #cv2.waitKey(0)
+            left_border, right_border = int(((self.H_ROI // 2 - bl_avg) / al_avg)), int(((self.H_ROI // 2 - br_avg) / ar_avg))
 
-            cv2.imwrite(f'./images/e_y/run_7/{i}_raw_frame.png', raw_frame)
-            cv2.imwrite(f'./images/e_y/run_7/{i}_prep_frame.png', frame)
-            #cv2.imshow('frame', raw_frame)
-            #cv2.waitKey(0)
 
-            return raw_frame, int(((self.H // 2 - bl_avg) / al_avg)),  int(((self.H // 2 - br_avg) / ar_avg))
+        #cv2.imshow('frame', raw_frame)
+        #cv2.waitKey(0)
+
+        cv2.imwrite(f'./images/e_y/run_7/{i}_raw_frame.png', raw_frame)
+        cv2.imwrite(f'./images/e_y/run_7/{i}_prep_frame.png', frame)
+        #cv2.imshow('frame', raw_frame)
+        #cv2.waitKey(0)
+
+        borders_are_true = self.check_borders(left_border, right_border, ar_avg, al_avg, True)
+        print(borders_are_true)
+
+        if not borders_are_true:
+            return None, None, None
+
+        cv2.imshow('prep', frame)
+        cv2.imshow('raw', raw_frame)
+        cv2.waitKey(0)
+
+        return raw_frame, left_border, right_border
+
+
+    def check_borders(self, left_border, right_border, ar_avg, al_avg, notif):
+
+        corridor_width = right_border - left_border
+        if corridor_width not in range(self.lane_width - 450, self.lane_width + 450):
+            if notif:
+                print(f" width = {corridor_width}")
+            return False
+
+        angle = int(np.atan(abs((ar_avg - al_avg) / (1 + ar_avg * al_avg))) * (180/np.pi))
+        if angle not in range(90 - 45, 90 + 45):
+            if notif:
+                print(f" angle = {angle}")
+            return False
+
+        return True
 
     def find_derivation_err(self, vis=True, save=True):
         #time.sleep(5)
@@ -303,7 +335,12 @@ if __name__ == "__main__":
     time.sleep(3)
 
     steer_controller = SteerController()
+    frame = cv2.imread('test_photo.jpg')
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    frame = frame[(2*steer_controller.H)//3 : , :, :]
+    steer_controller.find_lane_borders_v2(vis=True, raw_frame=frame, i=0)
 
+    '''
     i = 112
 
     while True:
@@ -337,6 +374,7 @@ if __name__ == "__main__":
 
     #steer_controller.find_derivation_err(vis=True)
 
+    '''
     '''
     i = 0
     while True:
