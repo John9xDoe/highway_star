@@ -31,6 +31,10 @@ class SteerController:
         self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         self.sigma = 0.33
 
+        self.V_MIN = 15
+        self.V_MAX = 30
+        self.K = 0.7
+
     def prepare_frame(self, raw_frame=None, i=0):
 
         while raw_frame is None:
@@ -248,9 +252,9 @@ class SteerController:
         if not borders_are_true:
             return None, None, None
 
-        cv2.imshow('prep', frame)
-        cv2.imshow('raw', raw_frame)
-        cv2.waitKey(0)
+        #cv2.imshow('prep', frame)
+        #cv2.imshow('raw', raw_frame)
+        #cv2.waitKey(0)
 
         return raw_frame, left_border, right_border
 
@@ -261,13 +265,13 @@ class SteerController:
         if corridor_width not in range(self.lane_width - 450, self.lane_width + 450):
             if notif:
                 print(f" width = {corridor_width}")
-            return False
+            #return False
 
         angle = int(np.atan(abs((ar_avg - al_avg) / (1 + ar_avg * al_avg))) * (180/np.pi))
         if angle not in range(90 - 45, 90 + 45):
             if notif:
                 print(f" angle = {angle}")
-            return False
+            #return False
 
         return True
 
@@ -309,10 +313,10 @@ class SteerController:
 
     def calculate_steering_wheel_angle(self, now):
 
-        if now - self.last_turn_t > self.rate:
+        if now - self.last_turn_t < self.rate:
             return None, None
 
-        e_norm = self.find_derivation_err(vis=True, save=True)
+        e_norm = self.find_derivation_err(vis=False, save=False)
 
         if e_norm is None:
             return None, None
@@ -323,89 +327,21 @@ class SteerController:
         return steer_raw, e_norm
 
 if __name__ == "__main__":
-    #print(np.argsort([1, 2, 5, 3, 4, 7, 6])[::-1][:4])
 
-    from test_vjoy import VJoyController
+    from test_vjoy import  VJoyController
+    vj_controller = VJoyController()
+    steer_controller = SteerController()
 
-    vjoy_controller = VJoyController()
-    vjoy_controller.set_controls(0, 1, 0)
-
-    #print("Starting in 5 seconds...")
-    #time.sleep(5)
     time.sleep(3)
 
-    steer_controller = SteerController()
-    frame = cv2.imread('test_photo.jpg')
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    frame = frame[(2*steer_controller.H)//3 : , :, :]
-    steer_controller.find_lane_borders_v2(vis=True, raw_frame=frame, i=0)
-
-    '''
-    i = 112
-
-    while True:
-        steer_controller.find_lane_borders_v2(vis=True, i=i)
-        i += 1
-        time.sleep(5)
-
-
-    #test_frame = cv2.imread('test_prep_photo.png')
-    #cv2.imshow('test', test_frame)
-    #cv2.waitKey(0)
-
-    #for h_coef in range(320, 330): # 0.326
-    #    h_frame, _ = steer_controller.make_bird_eye(test_frame, h_coef / 1000, 1 - h_coef / 1000)
-    #    cv2.imshow(f'{h_coef/100}', h_frame)
-    #    cv2.waitKey(0)
-
-    #h_frame, _ = steer_controller.make_bird_eye(test_frame, 0.326, 0.674)
-    #cv2.imshow('test_prep_photo', h_frame)
-    #cv2.waitKey(0)
-
-    #steer_controller.find_lane_borders_v2()
-
-    #steering, e_norm = steer_controller.calculate_steering_wheel_angle(0.0)
-    #print(steering, e_norm, e_norm * (steer_controller.W // 2))
-    #steer_controller.find_derivation_err(save=True)
-
-    #prep, raw = steer_controller.prepare_frame()
-    #cv2.imshow("Prepare Frame", prep)
-    #cv2.waitKey(0)
-
-    #steer_controller.find_derivation_err(vis=True)
-
-    '''
-    '''
-    i = 0
-    while True:
-        e = steer_controller.find_derivation_err()
-
-        if i % 1 == 0:
-            print(f"e-{i}={e}")
-
-        i += 1
-
-        time.sleep(10)
-    '''
-
-    #steer_controller.find_lane_borders_v2()
-    '''
-    i = 0
     start_time = time.time()
     while True:
-        steer, e = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
+        steer_raw, e_norm = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
 
-        if steer is None or e is None:
-            #print('НИ-ХУ-Я!!!')
+        if steer_raw is None:
+            print("НИХУХУ")
             continue
 
-        vjoy_controller.set_controls(steer,1,0)
-        
-        #if i % 1 == 0:
-            #print(f"{i} it: steer = {steer} | e = {e * (steer_controller.W // 2)}")
+        vj_controller.set_controls(steer_raw, 1, 0)
 
-        steer_controller.last_turn_t = time.time()
         time.sleep(1)
-
-        i += 1
-    #'''

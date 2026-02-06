@@ -8,11 +8,11 @@ camera = dxcam.create()
 vjoy_controller = VJoyController()
 
 period = 5
-i = 87
+i = 13
 
 vjoy_controller.set_controls(0,1,0)
 
-time.sleep(5)
+time.sleep(period)
 
 while True:
     frame = camera.grab()

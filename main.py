@@ -1,5 +1,6 @@
 from control_gearbox import GearboxController
 from control_speed import SpeedController
+from control_steer import SteerController
 from test_vjoy import VJoyController
 from ping_telemetry import Telemetry
 import time
@@ -7,6 +8,7 @@ import time
 if __name__ == "__main__":
 
     vjoy_controller = VJoyController()
+    steer_controller = SteerController()
     speed_controller = SpeedController()
     gearbox_controller = GearboxController()
     telemetry_pinger = Telemetry()
@@ -14,6 +16,8 @@ if __name__ == "__main__":
     vjoy_controller.reset()
 
     i = 0
+
+    prev_steer = None
 
     print("Starting in 10 seconds...")
     time.sleep(10)
@@ -25,6 +29,20 @@ if __name__ == "__main__":
         speed, rpm, rpm_max = telemetry_pinger.ping_data(vis=vis)
         throttle = speed_controller.update_speed(v=speed, vis=vis)
         gearbox_shift = gearbox_controller.update_gear(rpm=rpm, rpm_max=rpm_max, throttle=throttle, now=time.time() - start_time)
+
+        steer, e = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
+
+        # steer -> target speed
+        if steer is not None:
+            s = abs(steer)
+            v_target = max(steer_controller.V_MIN, steer_controller.V_MAX * (1.0 - steer_controller.K * s))
+            speed_controller.desired_speed = v_target
+        else:
+            if prev_steer is not None:
+                steer = prev_steer
+            else:
+                steer = 0
+
 
         # Later -> add-on controller:
         if gearbox_shift == 'up':
@@ -40,7 +58,9 @@ if __name__ == "__main__":
             print()
             print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
 
-        vjoy_controller.set_controls(0, throttle, 0)
+        vjoy_controller.set_controls(steer, throttle, 0)
+
+        prev_steer = steer
 
         i += 1
 

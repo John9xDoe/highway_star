@@ -41,7 +41,6 @@ class VJoyController:
 def test_vjoy():
     controller = VJoyController()
     try:
-        time.sleep(10)
         '''
         print("Steering sweep")
         for steering in [-1, -0.5, 0, 0.5, 1, 0]:
@@ -60,12 +59,19 @@ def test_vjoy():
         '''
         #time.sleep(10)
         #controller.set_controls(0, 0, 1)
+        '''
         print("Button test")
         time.sleep(5)
         controller.tap_button(button_id=1, hold_s=0.5)
         time.sleep(5)
         controller.tap_button(button_id=2, hold_s=0.5)
         time.sleep(1000)
+        '''
+
+        time.sleep(5)
+        controller.tap_button(button_id=1, hold_s=0.5)
+        time.sleep(5)
+        controller.tap_button(button_id=2, hold_s=0.5)
     finally:
         controller.reset()
         print("done")

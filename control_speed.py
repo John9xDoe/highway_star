@@ -15,13 +15,15 @@ class SpeedController:
         self.v_filter_prev_init = False
         self.a = 0.2
 
+        self.t_prev = None
+
         logging.info("PID start")
 
     def _get_dt(self):
         now = time.time()
         if self.t_prev is None:
             self.t_prev = now
-            return None
+            return 0
         dt = now - self.t_prev
         self.t_prev = now
 
