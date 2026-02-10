@@ -9,22 +9,30 @@ class SpeedController:
 
         self.desired_speed = desired_speed
         self.throttle = 0
-        self.Ki = 0.1
-        self.Kp = 0.5
         self.deadband = 0.3
         self.v_filter_prev = 0.0
         self.v_filter_prev_init = False
         self.a = 0.2
 
+        self.Ki = 0.1
+        self.Kp = 0.5
+        self.Kd = 0.1 # 0.02 - 0.1, freeze Ki for search
+
         self.U_p = 0
         self.U_i = 0
+        self.U_d = 0
         self.U = 0
 
+        self.v_prev = None
+        self.dv_prev = None
         self.t_prev = None
+        self.dt = 0.0
+
+        self.T = 0.3
 
         logging.info("PID start")
 
-    def _get_dt(self):
+    def _update_dt(self):
         now = time.monotonic()
         if self.t_prev is None:
             self.t_prev = now
@@ -32,9 +40,12 @@ class SpeedController:
         dt = now - self.t_prev
         self.t_prev = now
 
-        dt = clamp(dt, 1e-3, 0.2)
+        self.dt = clamp(dt, 1e-3, 0.2)
 
-        return dt
+        #return dt
+
+    def _update_filter_coef(self):
+        self.a = self.dt / (self.dt + self.T)
 
 
     def _calculate_filter(self, v):
@@ -50,8 +61,21 @@ class SpeedController:
         return self.desired_speed - self._calculate_filter(v=v)
 
     def update_speed(self, v, vis):
-        dt = self._get_dt()
+        self._update_dt()
+        self._update_filter_coef()
+
+
+        if self.v_prev is None:
+            self.v_prev = v
+
+        dv = (v - self.v_prev) / self.dt
+        if self.dv_prev is None:
+            self.dv_prev = self.U_d
+
+        dv_filter = self.a * self.U_d + (1 - self.a) * self.dv_prev
+
         eI = self._calculate_error(v=v)
+
 
         if abs(eI) < self.deadband:
             eP = 0
@@ -59,11 +83,13 @@ class SpeedController:
             eP = eI
 
         self.U_p = self.Kp * eP
-        self.U = self.U_p + self.U_i
+        self.U_d = -self.Kd * dv_filter
+
+        self.U = self.U_p + self.U_i + self.U_d
         self.throttle = clamp(self.U, 0, 1)
 
         if (self.U == self.throttle) or (self.U == 1.0 and eP < 1.0) or (self.U == 1.0 and eP > 0.0):
-            self.U_i += self.Ki * eI * dt
+            self.U_i += self.Ki * eI * self.dt
 
         if vis:
             print(f"eP={eP:.3f} | eI={eI:.3f} throttle={self.throttle:.3f} | P={self.U_p:.3f} | I={self.U_i:.3f} | dt = {dt:.3f}")
