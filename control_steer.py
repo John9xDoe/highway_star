@@ -101,60 +101,6 @@ class SteerController:
 
         return bev, H
 
-
-    def find_lane_borders_v0(self, vis=True):
-        frame, raw_frame = self.prepare_frame()
-
-        lookahead_area = frame[self.high_center - 5: self.high_center + 5, :]
-        lookahead = np.mean(lookahead_area, axis=0)
-        v_channel = lookahead[:, 2]
-        grad = np.abs(np.diff(v_channel))
-        left_part, right_part = grad[:int(0.5 * 1920)], grad[int(0.5 * 1920):]
-        right_border, left_border = np.argmax(right_part), np.argmax(left_part)
-
-        return frame, left_border, right_border
-
-    def find_lane_borders_v1(self, vis=True):
-        frame, raw_frame = self.prepare_frame()
-
-        lookahead_area = frame[self.high_center - 5: self.high_center + 5, :]
-        lookahead = np.mean(lookahead_area, axis=0)
-        v_channel = lookahead[:, 2]
-        grad = np.abs(np.diff(v_channel))
-        batch = 320
-        peaks = []
-        for i in range(self.W // batch):
-            peak = np.argsort(grad[i * batch:(i + 1) * batch])[::-1][0] + 240 * i
-            peaks.append(peak)
-
-            if vis:
-                cv2.line(frame, (peak, 0 * self.high_center), (peak, 2 * self.high_center), (0, 0, 255), 2)
-
-        err_lane_borders = float('inf')
-        base_meaning = 1100
-        left_boarder, right_border = None, None
-        peaks.sort()
-
-        for i in range(len(peaks)):
-            for j in range(i + 1, len(peaks)):
-                if abs(base_meaning - abs(peaks[i] - peaks[j])) < err_lane_borders:
-                    err_lane_borders = base_meaning - abs(peaks[i] - peaks[j])
-                    left_boarder, right_border = peaks[i], peaks[j]
-
-        if vis:
-            cv2.line(frame, (0, self.high_center), (self.W, self.high_center), (0, 0, 0), 1)
-            cv2.line(frame, (left_boarder, 0 * self.high_center), (left_boarder, 2 * self.high_center), (0, 255, 0),2)
-            cv2.line(frame, (right_border, 0 * self.high_center), (right_border, 2 * self.high_center), (0, 255, 0), 2)
-            cv2.imshow('frame', frame)
-            cv2.waitKey(0)
-
-        return frame, right_border + self.W // 2, left_boarder
-
-        if vis:
-            print(peaks)
-            cv2.imshow('frame', frame)
-            cv2.waitKey(0)
-
     def find_lane_borders_v2(self, vis=True, raw_frame=None, i=0):
         frame, raw_frame = self.prepare_frame(raw_frame=raw_frame, i=i)
 
@@ -247,7 +193,7 @@ class SteerController:
         #cv2.waitKey(0)
 
         borders_are_true = self.check_borders(left_border, right_border, ar_avg, al_avg, True)
-        print(borders_are_true)
+        #print(borders_are_true)
 
         if not borders_are_true:
             return None, None, None
@@ -262,15 +208,15 @@ class SteerController:
     def check_borders(self, left_border, right_border, ar_avg, al_avg, notif):
 
         corridor_width = right_border - left_border
-        if corridor_width not in range(self.lane_width - 450, self.lane_width + 450):
-            if notif:
-                print(f" width = {corridor_width}")
+        #if corridor_width not in range(self.lane_width - 450, self.lane_width + 450):
+            #if notif:
+                #print(f" width = {corridor_width}")
             #return False
 
         angle = int(np.atan(abs((ar_avg - al_avg) / (1 + ar_avg * al_avg))) * (180/np.pi))
-        if angle not in range(90 - 45, 90 + 45):
-            if notif:
-                print(f" angle = {angle}")
+        #if angle not in range(90 - 45, 90 + 45):
+            #if notif:
+                #print(f" angle = {angle}")
             #return False
 
         return True
@@ -284,7 +230,7 @@ class SteerController:
         if frame is None or left_border is None or right_border is None:
             return None
 
-        print(abs(right_border - left_border))
+        #print(abs(right_border - left_border))
 
         x_mid = (right_border + left_border) // 2
         e_y = x_mid - self.width_frame_center

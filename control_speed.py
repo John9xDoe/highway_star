@@ -9,30 +9,30 @@ class SpeedController:
 
         self.desired_speed = desired_speed
         self.throttle = 0
-        self.scale_error = 0.05
+        self.Ki = 0.1
+        self.Kp = 0.5
         self.deadband = 0.3
         self.v_filter_prev = 0.0
         self.v_filter_prev_init = False
         self.a = 0.2
+
+        self.U_p = 0
+        self.U_i = 0
+        self.U = 0
 
         self.t_prev = None
 
         logging.info("PID start")
 
     def _get_dt(self):
-        now = time.time()
+        now = time.monotonic()
         if self.t_prev is None:
             self.t_prev = now
-            return 0
+            return 1e-3
         dt = now - self.t_prev
         self.t_prev = now
 
-        '''
-        if dt <= 0.0:
-            return None
-        if dt > 0.5:
-            dt = 0.5
-        '''
+        dt = clamp(dt, 1e-3, 0.2)
 
         return dt
 
@@ -50,18 +50,24 @@ class SpeedController:
         return self.desired_speed - self._calculate_filter(v=v)
 
     def update_speed(self, v, vis):
-        error = self._calculate_error(v=v)
+        dt = self._get_dt()
+        eI = self._calculate_error(v=v)
 
-        if abs(error) < self.deadband:
-            error = 0
+        if abs(eI) < self.deadband:
+            eP = 0
+        else:
+            eP = eI
 
-        self.throttle += self.scale_error * error
-        self.throttle = clamp(self.throttle, 0, 1)
+        self.U_p = self.Kp * eP
+        self.U = self.U_p + self.U_i
+        self.throttle = clamp(self.U, 0, 1)
+
+        if (self.U == self.throttle) or (self.U == 1.0 and eP < 1.0) or (self.U == 1.0 and eP > 0.0):
+            self.U_i += self.Ki * eI * dt
 
         if vis:
-            print(f"error={error:.3f} | throttle={self.throttle:.3f} | dt = {self._get_dt():.3f}")
+            print(f"eP={eP:.3f} | eI={eI:.3f} throttle={self.throttle:.3f} | P={self.U_p:.3f} | I={self.U_i:.3f} | dt = {dt:.3f}")
 
-        #self.controller.set_controls(0, self.throttle,0)
         return self.throttle
 
 def test_pid():

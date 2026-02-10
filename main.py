@@ -37,6 +37,8 @@ if __name__ == "__main__":
             s = abs(steer)
             v_target = max(steer_controller.V_MIN, steer_controller.V_MAX * (1.0 - steer_controller.K * s))
             speed_controller.desired_speed = v_target
+            if vis:
+                print(f"v_target={v_target} | s={s}\n")
         else:
             if prev_steer is not None:
                 steer = prev_steer
@@ -49,14 +51,14 @@ if __name__ == "__main__":
             vjoy_controller.tap_button(1, 0.1)
             gearbox_controller.last_shift_t = time.time() - start_time
 
-            print()
-            print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
+            #print()
+            #print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
         elif gearbox_shift == 'down':
             vjoy_controller.tap_button(2, 0.1)
             gearbox_controller.last_shift_t = time.time() - start_time
 
-            print()
-            print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
+            #print()
+            #print(f"{i}: {gearbox_shift} ({speed}, {rpm}, {throttle}, {time.time() - start_time} s.)")
 
         vjoy_controller.set_controls(steer, throttle, 0)
 
