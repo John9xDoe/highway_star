@@ -6,3 +6,9 @@ python-dotenv>=1.0.0
 Pillow>=10.0.0
 truck_telemetry==0.0.3
 dxcam==0.0.5
+scikit-image
+tqdm
+mmseg
+albumentations
+torch
+segmentation-models-pytorch
