@@ -1,25 +1,8 @@
-# train_seg.py
-# Short, practical PyTorch segmentation trainer (CE+Dice), good baseline quality.
-# Uses segmentation_models_pytorch (SMP) for robust, pretrained backbones.
-#
-# Install:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121   (or cu118)
-#   pip install segmentation-models-pytorch albumentations opencv-python tqdm numpy
-#
-# Expected dataset (VOC export already OK):
-#   dataset/train/JPEGImages/*.jpg
-#   dataset/train/SegmentationClass/*.png   (paletted/colored ok)
-#   dataset/val/JPEGImages/*.jpg
-#   dataset/val/SegmentationClass/*.png
-#   dataset/*/labelmap   (optional but recommended)
-#
-# You must set LABELS below to match CVAT labelmap order/colors.
-#
-# Run:
-#   python train_seg.py
-
 import os, glob
-import time
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 import cv2
 import numpy as np
@@ -35,20 +18,13 @@ import segmentation_models_pytorch as smp
 from test_seg import load_model
 # -------------------- CONFIG --------------------
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-ROOT = r".\dataset\SegmentationMask_1_1\ds_AS" # contains train/, val/
-IMG_SIZE = (512, 288)                 # (W,H)
+ROOT = r".\dataset\SegmentationMask_1_1\ds_AS"
+IMG_SIZE = (512, 288) # (W,H)
 BATCH = 8
-#EPOCHS = 20
 LR = 3e-4
 WD = 1e-2
-#WORKDIR = "./runs/run_3"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-
-
-# IMPORTANT: map colors -> class index.
-# OpenCV reads PNG as BGR.
-# Example below; replace with your real labelmap colors.
 LABELS = [
     ("background", (0, 0, 0)),        # idx 0
     ("drivable",   (114, 183, 71)),      # idx 1
@@ -123,8 +99,6 @@ train_aug = A.Compose([
     A.RandomGamma(p=0.3),
     A.MotionBlur(blur_limit=3, p=0.2),
     A.Affine(translate_percent=0.02, scale=(0.95, 1.05), rotate=(-2, 2), fit_output=False, p=0.5,),
-    #A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.05, rotate_limit=2,
-    #                  border_mode=cv2.BORDER_CONSTANT, fill=0, fill_mask=0, p=0.5),
 ])
 
 val_aug = None
@@ -153,7 +127,7 @@ def miou(logits, y, ncls):
 
 
 # -------------------- TRAIN --------------------
-def main(ckpt_path, WORKDIR, EPOCHS):
+def main(WORKDIR, EPOCHS, save_per, ckpt_path=None, save_history=False, graph=False):
     os.makedirs(WORKDIR, exist_ok=True)
 
     tr = SegDS(list_pairs("train"), aug=train_aug)
@@ -162,21 +136,23 @@ def main(ckpt_path, WORKDIR, EPOCHS):
     trl = DataLoader(tr, batch_size=BATCH, shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
     val = DataLoader(va, batch_size=1, shuffle=False, num_workers=2, pin_memory=True)
 
-    '''
-    model = smp.DeepLabV3Plus(
-        encoder_name="resnet18", #"mobilenet_v3_large",
-        encoder_weights="imagenet",
-        in_channels=3,
-        classes=NUM_CLASSES,
-    ).to(DEVICE)
-    '''
-
-    model, _ = load_model(ckpt_path='./runs/run_2/best.pt', num_classes=2).to(DEVICE)
+    if ckpt_path is None:
+        model = smp.DeepLabV3Plus(
+            encoder_name="resnet34",
+            encoder_weights="imagenet",
+            in_channels=3,
+            classes=NUM_CLASSES,
+        ).to(DEVICE)
+    else:
+        model, _ = load_model(ckpt_path=ckpt_path, num_classes=2)
+        model = model.to(DEVICE)
 
     loss_fn = CEDice()
     opt = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
 
     best = -1.0
+    if save_history: history = []
+
     for ep in range(1, EPOCHS + 1):
         model.train()
         tl, tm = 0.0, 0.0
@@ -202,27 +178,40 @@ def main(ckpt_path, WORKDIR, EPOCHS):
         vl /= max(1, len(val)); vm /= max(1, len(val))
         print(f"ep {ep:02d} | train loss {tl:.4f} miou {tm:.4f} | val loss {vl:.4f} miou {vm:.4f}")
 
+        history.append({
+            "ep": ep,
+            "train_loss": tl,
+            "train_miou": tm,
+            "val_loss": vl,
+            "val_miou": vm
+        })
+
         torch.save({"model": model.state_dict(), "labels": LABELS}, os.path.join(WORKDIR, "last.pt"))
         if vm > best:
             best = vm
             torch.save({"model": model.state_dict(), "labels": LABELS}, os.path.join(WORKDIR, "best.pt"))
             print(f"  -> best updated: {best:.4f}")
 
+        if ep % save_per == 0:
+            torch.save({"model": model.state_dict(), "labels": LABELS}, os.path.join(WORKDIR, f"{ep}epchs.pt"))
+
+    df = pd.DataFrame(history)
+    df.to_csv(os.path.join(WORKDIR, "train_history.csv"), index=False)
+
     print("done. best miou:", best)
+
+    if graph:
+        sns.set_theme(style="darkgrid")
+        plt.figure(figsize=(12, 4))
+        sns.lineplot(data=df, x="ep", y="val_miou")
+        plt.title("Training of segmentation model")
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy")
+        plt.tight_layout()
+        plt.show()
 
 
 if __name__ == "__main__":
-    main(ckpt_path='./runs/run_2/last.pt', WORKDIR='./runs/run_3', EPOCHS=20)
-    print("done for 25 epochs")
-    time.sleep(5)
+    main(WORKDIR='./runs/run_1', EPOCHS=3, save_per=10, save_history=True, graph=True)
 
-    main(ckpt_path='./runs/run_3/last.pt', WORKDIR='./runs/run_4', EPOCHS=25)
-    print("done for 50 epochs")
-    time.sleep(5)
-
-    main(ckpt_path='./runs/run_4/last.pt', WORKDIR='./runs/run_5', EPOCHS=50)
-    print("done for 100 epochs")
-    time.sleep(5)
-
-    print("Finished")
 

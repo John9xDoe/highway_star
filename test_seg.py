@@ -1,9 +1,10 @@
 import os
-import sys
 import cv2
 import numpy as np
 import torch
 import segmentation_models_pytorch as smp
+
+from tqdm import tqdm
 
 IMG_SIZE = (512, 288)  # must match training (W,H)
 
@@ -50,10 +51,9 @@ def colorize(pred: np.ndarray, labels):
     return vis
 
 def main():
-    img_path = 'test_photo_0.jpg'
-    ckpt_path = './runs/run_3/best.pt'
-    out_mask = 'out_mask.png'
-    out_overlay = 'out_overlay.png'
+    img_path = './dataset/SegmentationMask_1_1/ds_AS/JPEGImages/val'  #'test_photo.jpg'
+    ckpt_path = 'runs/run_4 (100epchs)/best.pt'
+    val_dir = 'runs/run_4 (100epchs)/val'
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -69,27 +69,26 @@ def main():
     model, labels = load_model(ckpt_path, num_classes)
     model.to(device)
 
-    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
-    if img is None:
-        raise RuntimeError(f"Failed to read {img_path}")
+    for i, im in tqdm(enumerate(os.listdir(img_path))):
+        img = cv2.imread(os.path.join(img_path, im), cv2.IMREAD_COLOR)
+        if img is None:
+            raise RuntimeError(f"Failed to read {img_path}")
 
-    x, img_rgb = preprocess(img)
-    pred = predict(model, x, device)
+        x, img_rgb = preprocess(img)
+        pred = predict(model, x, device)
 
-    u, c = np.unique(pred, return_counts=True)
-    print("unique:", dict(zip(u.tolist(), c.tolist())))
+        #u, c = np.unique(pred, return_counts=True)
+        #print("unique:", dict(zip(u.tolist(), c.tolist())))
 
-    # save raw index mask (0..C-1)
-    cv2.imwrite(out_mask, pred * 255)
+        # save raw index mask (0..C-1)
+        cv2.imwrite(f'runs/run_4 (100epchs)/val/out_mask_{i}.png', pred * 255)
 
-    # optional overlay
-    if out_overlay:
+        # optional overlay
         pred_col = colorize(pred, labels)            # BGR
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
         overlay = cv2.addWeighted(img_bgr, 0.7, pred_col, 0.3, 0)
-        cv2.imwrite(out_overlay, overlay)
+        cv2.imwrite(f'runs/run_4 (100epchs)/val/out_overlay_{i}.png', overlay)
 
-    print("saved:", out_mask, ("and "+out_overlay if out_overlay else ""))
 
 if __name__ == "__main__":
     main()

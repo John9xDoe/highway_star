@@ -3,10 +3,13 @@ from control_speed import SpeedController
 from control_steer import SteerController
 from test_vjoy import VJoyController
 from ping_telemetry import Telemetry
+
 import time
+from datetime import datetime
+
+import cv2
 
 if __name__ == "__main__":
-
     vjoy_controller = VJoyController()
     steer_controller = SteerController()
     speed_controller = SpeedController()
@@ -18,6 +21,8 @@ if __name__ == "__main__":
     i = 0
 
     prev_steer = None
+    grub_per = 1
+    prev_grub = 0.0
 
     print("Starting in 10 seconds...")
     time.sleep(10)
@@ -63,6 +68,13 @@ if __name__ == "__main__":
         vjoy_controller.set_controls(steer, throttle, 0)
 
         prev_steer = steer
+
+        if time.monotonic() - prev_grub >= grub_per:
+            frame = None
+            while frame is None:
+                frame = steer_controller.camera.grab()
+            cv2.imwrite(f"./images/raw/unsorted/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{i}.png", frame)
+            prev_grub = time.monotonic()
 
         i += 1
 

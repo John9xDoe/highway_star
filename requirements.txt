@@ -12,3 +12,6 @@ mmseg
 albumentations
 torch
 segmentation-models-pytorch
+pandas
+seaborn
+matplotlib

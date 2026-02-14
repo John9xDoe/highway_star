@@ -41,21 +41,10 @@ class SteerController:
             raw_frame = self.camera.grab(region=self.ROI)
 
         prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_RGB2HSV)
-        #cv2.imshow('prep_frame', prep_frame)
-        #prep_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
         prep_frame = cv2.GaussianBlur(prep_frame, (7, 7), 0)
-
-
-        #prep_frame = np.clip(self.clahe.apply(prep_frame), 0, 255).astype(np.uint8)
-
-        #lower = np.array([85, 60, 120], np.uint8)
-        #upper = np.array([105, 180, 255], np.uint8)
 
         lower_y = np.array([18, 80, 120], np.uint8)
         upper_y = np.array([35, 255, 255], np.uint8)
-
-        #lower_w = np.array([0, 0, 180], np.uint8)
-        #upper_w = np.array([179, 60, 255], np.uint8)
 
         lower_w = np.array([0, 0, 200], np.uint8)
         upper_w = np.array([179, 40, 255], np.uint8)
@@ -68,9 +57,6 @@ class SteerController:
         kernel = np.ones((3, 3), np.uint8)
         mask = cv2.morphologyEx(prep_frame, cv2.MORPH_OPEN, kernel, iterations=1)
         prep_frame = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=1)
-
-        #h_coef = 0.326
-        #prep_frame, H = self.make_bird_eye(prep_frame, h_coef, 1 - h_coef)
 
         cv2.imwrite(f'./images/e_y/run_7/{i}_mask.png', prep_frame)
 
@@ -183,54 +169,36 @@ class SteerController:
 
             left_border, right_border = int(((self.H_ROI // 2 - bl_avg) / al_avg)), int(((self.H_ROI // 2 - br_avg) / ar_avg))
 
-
-        #cv2.imshow('frame', raw_frame)
-        #cv2.waitKey(0)
-
-        cv2.imwrite(f'./images/e_y/run_7/{i}_raw_frame.png', raw_frame)
-        cv2.imwrite(f'./images/e_y/run_7/{i}_prep_frame.png', frame)
-        #cv2.imshow('frame', raw_frame)
-        #cv2.waitKey(0)
-
-        borders_are_true = self.check_borders(left_border, right_border, ar_avg, al_avg, True)
-        #print(borders_are_true)
+        borders_are_true = True #self.check_borders(left_border, right_border, ar_avg, al_avg, True)
 
         if not borders_are_true:
             return None, None, None
 
-        #cv2.imshow('prep', frame)
-        #cv2.imshow('raw', raw_frame)
-        #cv2.waitKey(0)
-
         return raw_frame, left_border, right_border
 
 
-    def check_borders(self, left_border, right_border, ar_avg, al_avg, notif):
+    def check_borders(self, left_border, right_border, ar_avg, al_avg, notif): # Incorrect constants
 
         corridor_width = right_border - left_border
-        #if corridor_width not in range(self.lane_width - 450, self.lane_width + 450):
-            #if notif:
-                #print(f" width = {corridor_width}")
-            #return False
+        if corridor_width not in range(self.lane_width - 450, self.lane_width + 450):
+            if notif:
+                print(f" width = {corridor_width}")
+            return False
 
         angle = int(np.atan(abs((ar_avg - al_avg) / (1 + ar_avg * al_avg))) * (180/np.pi))
-        #if angle not in range(90 - 45, 90 + 45):
-            #if notif:
-                #print(f" angle = {angle}")
-            #return False
+        if angle not in range(90 - 45, 90 + 45):
+            if notif:
+                print(f" angle = {angle}")
+            return False
 
         return True
 
     def find_derivation_err(self, vis=True, save=True):
-        #time.sleep(5)
-        #frame = self._prepare_frame()
 
         frame, left_border, right_border = self.find_lane_borders_v2(vis=vis)
 
         if frame is None or left_border is None or right_border is None:
             return None
-
-        #print(abs(right_border - left_border))
 
         x_mid = (right_border + left_border) // 2
         e_y = x_mid - self.width_frame_center
@@ -247,10 +215,6 @@ class SteerController:
             cv2.line(frame, (self.width_road_center, self.high_center * 0), (self.width_road_center, self.high_center * 2), (0, 0, 255), 1)
 
             cv2.line(frame, (0, self.high_center), (self.W, self.high_center), (0, 0, 0), 1)
-            #cv2.line(frame, (width_road_center + width_shift_line_lookahead, high_center), (width_road_center + width_shift_line_lookahead + 500, high_center), (0, 0, 0), 1)
-
-            #cv2.imshow('frame', frame)
-            #cv2.waitKey(0)
 
         if save:
             cv2.imwrite(f'./images/e_y/run_6/{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}_{abs(e_y)}.png', frame)
@@ -272,9 +236,8 @@ class SteerController:
 
         return steer_raw, e_norm
 
-if __name__ == "__main__":
-
-    from test_vjoy import  VJoyController
+def main(): # steer test
+    from test_vjoy import VJoyController
     vj_controller = VJoyController()
     steer_controller = SteerController()
 
@@ -285,9 +248,11 @@ if __name__ == "__main__":
         steer_raw, e_norm = steer_controller.calculate_steering_wheel_angle(time.time() - start_time)
 
         if steer_raw is None:
-            print("НИХУХУ")
             continue
 
         vj_controller.set_controls(steer_raw, 1, 0)
 
         time.sleep(1)
+
+if __name__ == "__main__":
+    main()

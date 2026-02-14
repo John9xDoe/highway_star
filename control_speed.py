@@ -4,9 +4,6 @@ import time
 
 class SpeedController:
     def __init__(self, desired_speed=25):
-        #self.controller = VJoyController()
-        #self.controller.set_controls(0,0,0)
-
         self.desired_speed = desired_speed
         self.throttle = 0
         self.deadband = 0.3
@@ -26,7 +23,7 @@ class SpeedController:
         self.v_prev = None
         self.dv_prev = None
         self.t_prev = None
-        self.dt = 0.0
+        self.dt = 1e-3
 
         self.T = 0.3
 
@@ -41,8 +38,6 @@ class SpeedController:
         self.t_prev = now
 
         self.dt = clamp(dt, 1e-3, 0.2)
-
-        #return dt
 
     def _update_filter_coef(self):
         self.a = self.dt / (self.dt + self.T)
@@ -72,7 +67,7 @@ class SpeedController:
         if self.dv_prev is None:
             self.dv_prev = self.U_d
 
-        dv_filter = self.a * self.U_d + (1 - self.a) * self.dv_prev
+        dv_filter = self.a * dv + (1 - self.a) * self.dv_prev
 
         eI = self._calculate_error(v=v)
 
@@ -92,7 +87,7 @@ class SpeedController:
             self.U_i += self.Ki * eI * self.dt
 
         if vis:
-            print(f"eP={eP:.3f} | eI={eI:.3f} throttle={self.throttle:.3f} | P={self.U_p:.3f} | I={self.U_i:.3f} | dt = {dt:.3f}")
+            print(f"eP={eP:.3f} | eI={eI:.3f} throttle={self.throttle:.3f} | P={self.U_p:.3f} | I={self.U_i:.3f} | dt = {self.dt:.3f}")
 
         return self.throttle
 
